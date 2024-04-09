@@ -56,38 +56,28 @@ public:
         }
     }
 
-    void standardizeData(cv::Mat& data) 
-    {
-        // Mittelwert und Standardabweichung für jede Spalte berechnen
-        for (int i = 0; i < data.cols; i++) 
+    void standardizeData(cv::Mat& data) {
+        // Sicherstellen, dass die Daten im richtigen Format sind
+        data.convertTo(data, CV_32F);
+
+        cv::Scalar mean, stddev;
+        // Mittelwert und Standardabweichung für die aktuelle Spalte berechnen
+        cv::meanStdDev(data, mean, stddev);
+
+        // Prüfen, ob die Standardabweichung zu klein ist, um Division durch Null zu vermeiden
+        if (stddev[0] != 0) 
         {
-            cv::Scalar mean, stddev;
-            //cv::meanStdDev (InputArray src, OutputArray mean, OutputArray stddev, InputArray mask=noArray())
-            cv::meanStdDev(data.col(i), mean, stddev);
-
-            // Prüfen, ob die Standardabweichung zu klein ist, um Division durch Null zu vermeiden
-            if (stddev[0] < 1e-6) stddev[0] = 1;
-
-            // Standardisierung: (x - Mittelwert) / Standardabweichung
-            data.col(i) = (data.col(i) - mean[0]) / stddev[0];
+            // Standardisierung: (x - Mittelwert) / Standardabweichung für jedes Element in der Spalte
+            data = (data - mean[0]) / stddev[0];
         }
     }
 
-    void checkStandardization(const cv::Mat& data) 
+    void checkStandardization(const cv::Mat& data, const std::string& name) 
     {
-        for (int i = 0; i < data.cols; i++) 
-        {
-            cv::Scalar mean, stddev;
-            cv::meanStdDev(data.col(i), mean, stddev);
+        cv::Scalar mean, stdDev;
+        cv::meanStdDev(data, mean, stdDev); // Calculate mean and standard deviation for the training samples
 
-            std::cout << "Feature " << i << ": Mean = " << mean[0] << ", StdDev = " << stddev[0] << std::endl;
-
-            // Überprüfen, ob die Werte den Erwartungen entsprechen
-            if (std::abs(mean[0]) > 1e-3 || (stddev[0] < 0.9 || stddev[0] > 1.1)) 
-            {
-                std::cout << "Warnung: Feature " << i << " ist möglicherweise nicht korrekt standardisiert." << std::endl;
-            }
-        }
+        std::cout<< name << " Train Mean: " << mean[0] << " Train Stddev: " << stdDev[0] << std::endl;
     }
 
     
@@ -132,12 +122,25 @@ int main()
     preprocessor.filterDigits(1, 3);
 
     cv::Mat data = preprocessor.getFilteredDigits();
+    
+    cv::Mat label = preprocessor.getFilteredLabel();
+
+    /*
+    cv::namedWindow("data", 1);
+    cv::imshow("data", data);
+    cv::waitKey(0);
+    */
+
+
+    std::cout<<"Rows: "<<data.rows<<std::endl;
+
+    std::cout<<"Columns: "<<data.cols<<std::endl;
+
 
     preprocessor.standardizeData(data);
 
-    preprocessor.checkStandardization(data);
+    preprocessor.checkStandardization(data, "Train Data");
 
-    //cv::Mat label = preprocessor.getFilteredLabel();
 
     //preprocessor.displayImagesInTerminal(10, data, label);
 
