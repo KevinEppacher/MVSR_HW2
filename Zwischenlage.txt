@@ -1,0 +1,25 @@
+        cv::Mat samples = originalData->getSamples();
+        cv::Mat labels = originalData->getResponses();
+
+        std::vector<int> indices;
+
+        for (int i = startRow; i < endRow; ++i)
+        {
+            float currentLabel = labels.at<float>(i, 0);
+            if (currentLabel == digit1 || currentLabel == digit2)
+            {
+                indices.push_back(i);
+            }
+        }
+
+        filteredDigits = cv::Mat(indices.size(), samples.cols, samples.type());
+        filteredLabel = cv::Mat(indices.size(), 1, labels.type());
+
+        for (size_t i = 0; i < indices.size(); ++i)
+        {
+            samples.row(indices[i]).copyTo(filteredDigits.row(i));
+            labels.row(indices[i]).copyTo(filteredLabel.row(i));
+        }
+
+        std::cout << "Filtered dataset to include only digits " << digit1 << " and " << digit2;
+        std::cout << " from rows " << startRow << " to " << endRow << "." << std::endl;
