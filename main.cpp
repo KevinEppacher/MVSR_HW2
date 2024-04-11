@@ -15,15 +15,24 @@ struct Matrices
     cv::Mat sample, label;
 };
 
+struct FilterRows
+{
+    int startRow, endRow;
+};
+
 
 class DataPreprocessor {
+private:
+    cv::Mat samples;
+    cv::Mat label;
+    cv::Mat filteredDigits;
+    cv::Mat filteredLabel;
+    Matrices train, test;
+    Data data;
+
+
 public:
     DataPreprocessor(){};
-
-    DataPreprocessor(const std::string& csvPath)
-    {
-        loadDataset(csvPath);
-    }
 
     ~DataPreprocessor(){};
 
@@ -121,27 +130,14 @@ public:
     
     cv::Mat getTestLabels(){ return test.label; }
 
-private:
-    cv::Mat samples;
-    cv::Mat label;
-    cv::Mat filteredDigits;
-    cv::Mat filteredLabel;
-    Matrices train, test;
-    Data data;
-
-    void loadDataset(const std::string& csvPath) 
+    void loadDataset(const std::string& csvPath, const int& filterDigit1, const int& filterDigit2, const FilterRows& filterRowsTrain, const FilterRows& filterRowsTest) 
     {
         std::cout << "Loading MNIST Test Dataset from " << csvPath << "..." << std::endl;
 
         data.total = cv::ml::TrainData::loadFromCSV(csvPath, 0, 0, 1);
 
-        if (data.total->getSamples().empty()) 
-        {
-            std::cerr << "data.total is empty after filtering." << std::endl;
-        } 
-
-        data.train = filter(data.total, 1, 3, 0, 5000);
-        data.test = filter(data.total, 1, 3, 5000, 10000);
+        data.train = filter(data.total, filterDigit1, filterDigit2, filterRowsTrain.startRow, filterRowsTrain.endRow);
+        data.test = filter(data.total, filterDigit1, filterDigit2, filterRowsTest.startRow, filterRowsTest.endRow);
 
         if (data.train->getSamples().empty()) 
         {
@@ -159,9 +155,6 @@ private:
             std::cout<<"geh scheißen"<<std::endl;
 
         }
-
-
-
     }
 
 };
@@ -189,6 +182,21 @@ class LogisticRegression
 };
 
 
+cv::Mat mapLabelToBinary(const cv::Mat& originalLabel, const std::vector<float>& desiredLabels) {
+    cv::Mat binaryLabels = originalLabel.clone(); // Verwenden clone(), um eine Kopie zu erstellen und das Original unverändert zu lassen
+
+    for(int i = 0; i < binaryLabels.rows; i++) {
+        float& label = binaryLabels.at<float>(i, 0); // Referenz, um den Wert direkt zu ändern
+        if (label == 2) {
+            label = desiredLabels.at(0); // Setze auf den ersten Wert in desiredLabels
+        } else if (label == 5) {
+            label = desiredLabels.at(1); // Setze auf den zweiten Wert in desiredLabels
+        }
+    }
+    return binaryLabels;
+}
+
+
 int main() 
 {
     /*
@@ -209,7 +217,12 @@ int main()
     */
 
 
-    DataPreprocessor preprocessor("./mnist_test.csv");
+    DataPreprocessor preprocessor;
+
+    FilterRows filterRowsTrain, filterRowsTest;
+    filterRowsTrain.startRow = 0; filterRowsTrain.endRow = 1000; filterRowsTest.startRow = 1000; filterRowsTest.endRow = 6000;
+
+    preprocessor.loadDataset("./mnist_test.csv", 2, 5, filterRowsTrain, filterRowsTest);
 
     //preprocessor.filterData(1, 3);
 
@@ -253,6 +266,11 @@ int main()
     std::cout<<"projectedData.rows"<<projectedTestSamples.rows<<std::endl;
 
     //preprocessor.writeCsvFile(projectedData, "./pca_reduced_data.csv");
+
+    std::vector<float> desiredLabels = {0, 1}; // Korrekte Initialisierung
+
+    cv::Mat binaryLabel = mapLabelToBinary(train.label, desiredLabels);
+    std::cout << "Binary Labels:" << std::endl << binaryLabel << std::endl;
 
 
 
