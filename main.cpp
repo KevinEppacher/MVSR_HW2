@@ -20,6 +20,36 @@ struct FilterRows
     int startRow, endRow;
 };
 
+float computeAccuracy(const cv::Mat& predicted, const cv::Mat& actual) {
+    int correct = 0;
+    for (int i = 0; i < predicted.rows; ++i) {
+        // Rundet die Vorhersage auf 0 oder 1, basierend auf einem Schwellenwert von 0.5
+        int predLabel = predicted.at<float>(i, 0) >= 0.5 ? 1 : 0;
+        int trueLabel = static_cast<int>(actual.at<float>(i, 0));
+        if (predLabel == trueLabel) {
+            correct++;
+        }
+    }
+    return static_cast<float>(correct) / predicted.rows;
+}
+
+
+cv::Mat mapLabelToBinary(const cv::Mat& originalLabel, const std::vector<float>& desiredLabels) {
+    cv::Mat binaryLabels = originalLabel.clone();
+
+    for(int i = 0; i < binaryLabels.rows; i++) 
+    {
+        float& label = binaryLabels.at<float>(i, 0);
+        if (label == 2) {
+            label = desiredLabels.at(0);
+        } 
+        else if (label == 5) 
+        {
+            label = desiredLabels.at(1);
+        }
+    }
+    return binaryLabels;
+}
 
 class DataPreprocessor {
 private:
@@ -152,8 +182,6 @@ public:
             train.label = data.train->getTrainResponses();
             test.sample = data.test->getTrainSamples();
             test.label = data.test->getTrainResponses();
-            std::cout<<"geh scheißen"<<std::endl;
-
         }
     }
 
@@ -162,39 +190,84 @@ public:
 class LogisticRegression
 {
     private:
+        cv::Mat weights;
 
-    public:
-        LogisticRegression(){};
-        ~LogisticRegression(){};
-        
-        
-        
-        void train()
+        cv::Mat calculateTrainDataWithBias(const cv::Mat& trainData)
         {
-
+            cv::Mat trainDataWithBias;
+            cv::hconcat(cv::Mat::ones(trainData.rows, 1, trainData.type()), trainData, trainDataWithBias);
+            return trainDataWithBias;
         }
 
-        void predict()
+        cv::Mat sigmoid(const cv::Mat& z) 
         {
+            cv::Mat output;
+            cv::exp(-z, output);
+            output = 1.0 / (1.0 + output);
+            return output;
+        }
 
+
+        cv::Mat calculateR(const cv::Mat& trainDataWithBias)
+        {
+            cv::Mat R = cv::Mat::zeros(trainDataWithBias.rows, trainDataWithBias.rows, CV_32F);
+
+            for (int i = 0; i < trainDataWithBias.rows; ++i) 
+            {
+                double p = trainDataWithBias.at<float>(i, 0);
+                R.at<float>(i, i) = p * (1 - p); // y_n (1 - y_n)
+            }
+            return R;
+        }
+
+        cv::Mat calculateHessian(const cv::Mat& trainDataWithBias, const cv::Mat& R)
+        {
+            return trainDataWithBias.t() * R * trainDataWithBias;
+        }
+
+        cv::Mat calculateGradient(const cv::Mat& trainDataWithBias, const cv::Mat& predictions, const cv::Mat& labels)
+        {
+            cv::Mat errors = predictions - labels;
+            return trainDataWithBias.t() * errors;  // ∇E(w) = Φ^T (y - t)
+        }
+
+    public:
+        LogisticRegression(int quantityRows): weights(cv::Mat::zeros(quantityRows + 1, 1, CV_32F)) {
+            std::cout << "Initial weights (including bias): " <<std::endl<< weights << std::endl;
+        }
+
+        ~LogisticRegression(){};
+        
+        cv::Mat predict(const cv::Mat& trainDataWithBias) 
+        {
+            cv::Mat exponent = trainDataWithBias * weights;
+            return sigmoid(exponent);
+        }
+
+        void train(const cv::Mat& trainData, const cv::Mat& labelData, int maxIterations = 10)
+        {
+            cv::Mat trainDataWithBias = calculateTrainDataWithBias(trainData);
+
+            for(int i=0; i<maxIterations; i++)
+            {
+                cv::Mat R = calculateR(trainDataWithBias);
+                cv::Mat predictions = predict(trainDataWithBias);
+                cv::Mat hessian = calculateHessian(trainDataWithBias, R);
+                cv::Mat gradient = calculateGradient(trainDataWithBias, predictions, labelData);
+                //std::cout <<"Hessian: "<<std::endl<<hessian<<std::endl;
+
+                cv::Mat hessianInv;
+                cv::invert(hessian, hessianInv, cv::DECOMP_SVD);
+
+                weights = weights - hessianInv * gradient;
+
+                std::cout << "Iteration " << i + 1 << " complete. Weights updated." <<std::endl<<weights<< std::endl;
+            }
         }
 
 };
 
 
-cv::Mat mapLabelToBinary(const cv::Mat& originalLabel, const std::vector<float>& desiredLabels) {
-    cv::Mat binaryLabels = originalLabel.clone(); // Verwenden clone(), um eine Kopie zu erstellen und das Original unverändert zu lassen
-
-    for(int i = 0; i < binaryLabels.rows; i++) {
-        float& label = binaryLabels.at<float>(i, 0); // Referenz, um den Wert direkt zu ändern
-        if (label == 2) {
-            label = desiredLabels.at(0); // Setze auf den ersten Wert in desiredLabels
-        } else if (label == 5) {
-            label = desiredLabels.at(1); // Setze auf den zweiten Wert in desiredLabels
-        }
-    }
-    return binaryLabels;
-}
 
 
 int main() 
@@ -259,26 +332,22 @@ int main()
     cv::Mat projectedTestSamples = pcaTest.project(test.sample);
 
 
-    std::cout<<"projectedData.cols"<<projectedTrainSamples.cols<<std::endl;
-    std::cout<<"projectedData.rows"<<projectedTrainSamples.rows<<std::endl;
+    std::cout<<"projectedTrainSamples.cols: "<<projectedTrainSamples.cols<<std::endl;
+    std::cout<<"projectedTrainSamples.rows: "<<projectedTrainSamples.rows<<std::endl;
 
-    std::cout<<"projectedData.cols"<<projectedTestSamples.cols<<std::endl;
-    std::cout<<"projectedData.rows"<<projectedTestSamples.rows<<std::endl;
+    std::cout<<"projectedTestSamples.cols: "<<projectedTestSamples.cols<<std::endl;
+    std::cout<<"projectedTestSamples.rows: "<<projectedTestSamples.rows<<std::endl;
 
     //preprocessor.writeCsvFile(projectedData, "./pca_reduced_data.csv");
 
+    //Map Target Labels of the Train and Test Dataset from 2 to 0 and from 5 to 1
     std::vector<float> desiredLabels = {0, 1}; // Korrekte Initialisierung
+    cv::Mat binaryTrainLabel = mapLabelToBinary(train.label, desiredLabels);
+    cv::Mat binaryTestLabel = mapLabelToBinary(test.label, desiredLabels);
+    
+    LogisticRegression model(projectedTrainSamples.cols);
 
-    cv::Mat binaryLabel = mapLabelToBinary(train.label, desiredLabels);
-    std::cout << "Binary Labels:" << std::endl << binaryLabel << std::endl;
-
-
-
-
-
-
-
-
+    model.train(projectedTrainSamples, binaryTrainLabel, 100);
 
 
 
