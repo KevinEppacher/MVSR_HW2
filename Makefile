@@ -9,3 +9,5 @@ uebung1: main.o
 # Kompilieren der Hauptdatei
 main.o: main.cpp
 	$(CXX) -c main.cpp $(CXXFLAGS)
+
+

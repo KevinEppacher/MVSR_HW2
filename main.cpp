@@ -23,7 +23,6 @@ struct FilterRows
 float computeAccuracy(const cv::Mat& predicted, const cv::Mat& actual) {
     int correct = 0;
     for (int i = 0; i < predicted.rows; ++i) {
-        // Rundet die Vorhersage auf 0 oder 1, basierend auf einem Schwellenwert von 0.5
         int predLabel = predicted.at<float>(i, 0) >= 0.5 ? 1 : 0;
         int trueLabel = static_cast<int>(actual.at<float>(i, 0));
         if (predLabel == trueLabel) {
@@ -33,11 +32,44 @@ float computeAccuracy(const cv::Mat& predicted, const cv::Mat& actual) {
     return static_cast<float>(correct) / predicted.rows;
 }
 
+cv::Ptr<cv::ml::TrainData> filterData(const cv::Ptr<cv::ml::TrainData> &originalData, int startRow, int endRow)
+{
+    // Get the total number of rows in the original data
+    int totalRows = originalData->getSamples().rows;
+    startRow = std::max(0, startRow);     // Ensure startRow is not less than 0
+    endRow = std::min(endRow, totalRows); // Ensure endRow does not exceed totalRows
+
+    // Get the samples and responses within the specified range
+    cv::Mat samples = originalData->getSamples().rowRange(startRow, endRow);     // Get the samples
+    cv::Mat responses = originalData->getResponses().rowRange(startRow, endRow); // Get the responses
+
+    // Apply the mask: Find rows where the response is 7 or 8
+    cv::Mat mask = (responses == 2) | (responses == 5);
+
+    // Create empty matrices for storing filtered data
+    cv::Mat filteredSamples, filteredResponses;
+
+    // Loop through the mask and filter samples and responses
+    for (size_t i = 0; i < mask.total(); ++i)
+    {
+        if (mask.at<uint8_t>(i))
+        {
+            // Check if the mask at position i is true
+            filteredSamples.push_back(samples.row(i));
+            filteredResponses.push_back(responses.row(i));
+        }
+    }
+
+    // Create and return a new TrainData instance from the filtered samples and responses
+    return cv::ml::TrainData::create(filteredSamples, cv::ml::ROW_SAMPLE, filteredResponses);
+}
+
+
 
 cv::Mat mapLabelToBinary(const cv::Mat& originalLabel, const std::vector<float>& desiredLabels) {
     cv::Mat binaryLabels = originalLabel.clone();
 
-    for(int i = 0; i < binaryLabels.rows; i++) 
+    for(int i = 0; i < binaryLabels.rows; ++i) 
     {
         float& label = binaryLabels.at<float>(i, 0);
         if (label == 2) {
@@ -66,7 +98,6 @@ public:
 
     ~DataPreprocessor(){};
 
-    //anders schreiben !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     cv::Ptr<cv::ml::TrainData> filter(const cv::Ptr<cv::ml::TrainData> &originalData, int digit1, int digit2, int startRow, int endRow)
     {
         startRow = std::max(0, startRow);
@@ -112,18 +143,17 @@ public:
         }
     }
 
-    void standardizeData(cv::Mat& data) {
-        // Sicherstellen, dass die Daten im richtigen Format sind
+    void standardizeData(cv::Mat& data)
+     {
+
         data.convertTo(data, CV_32F);
 
         cv::Scalar mean, stddev;
-        // Mittelwert und Standardabweichung für die aktuelle Spalte berechnen
+
         cv::meanStdDev(data, mean, stddev);
 
-        // Prüfen, ob die Standardabweichung zu klein ist, um Division durch Null zu vermeiden
         if (stddev[0] != 0) 
         {
-            // Standardisierung: (x - Mittelwert) / Standardabweichung für jedes Element in der Spalte
             data = (data - mean[0]) / stddev[0];
         }
     }
@@ -131,7 +161,8 @@ public:
     void checkStandardization(const cv::Mat& data, const std::string& name) 
     {
         cv::Scalar mean, stdDev;
-        cv::meanStdDev(data, mean, stdDev); // Calculate mean and standard deviation for the training samples
+        
+        cv::meanStdDev(data, mean, stdDev);
 
         std::cout<< name << " Train Mean: " << mean[0] << " Train Stddev: " << stdDev[0] << std::endl;
     }
@@ -139,6 +170,7 @@ public:
     void writeCsvFile(const cv::Mat& projectedData, const std::string& filepath)
     {
         std::ofstream outputFile(filepath);
+
         outputFile << "Component1,Component2,Component3,Label\n";
 
         for (int i = 0; i < projectedData.rows; i++) {
@@ -149,6 +181,7 @@ public:
         }
 
         outputFile.close();
+        
         std::cout << "PCA-reduced data and labels have been written to 'pca_reduced_data.csv'" << std::endl;
     }
 
@@ -208,13 +241,16 @@ class LogisticRegression
         }
 
 
-        cv::Mat calculateR(const cv::Mat& trainDataWithBias)
+        cv::Mat calculateR(const cv::Mat& trainData, const cv::Mat& trainPrediction)
         {
-            cv::Mat R = cv::Mat::zeros(trainDataWithBias.rows, trainDataWithBias.rows, CV_32F);
+            cv::Mat R = cv::Mat::zeros(trainData.rows, trainData.rows, CV_32F);
 
-            for (int i = 0; i < trainDataWithBias.rows; ++i) 
+            //std::cout << "R: " << R << std::endl;
+
+
+            for (int i = 0; i < trainData.rows; ++i) 
             {
-                double p = trainDataWithBias.at<float>(i, 0);
+                double p = trainPrediction.at<float>(i, 0);
                 R.at<float>(i, i) = p * (1 - p); // y_n (1 - y_n)
             }
             return R;
@@ -241,17 +277,24 @@ class LogisticRegression
         cv::Mat predict(const cv::Mat& trainDataWithBias) 
         {
             cv::Mat exponent = trainDataWithBias * weights;
+            //std::cout<<"exponent "<< exponent <<std::endl<<std::endl;
             return sigmoid(exponent);
         }
 
-        void train(const cv::Mat& trainData, const cv::Mat& labelData, int maxIterations = 10)
+        void train(const cv::Mat& trainData, const cv::Mat& labelData, const cv::Mat& testData, const cv::Mat& testLabel, int maxIterations = 10)
         {
             cv::Mat trainDataWithBias = calculateTrainDataWithBias(trainData);
 
+            //std::cout << "trainDataWithBias: " << trainDataWithBias << std::endl;
+            //std::cout << "labelData: " << std::endl<< labelData << std::endl;
+
+
             for(int i=0; i<maxIterations; i++)
             {
-                cv::Mat R = calculateR(trainDataWithBias);
+                //std::cout << "R: " << R << std::endl;
                 cv::Mat predictions = predict(trainDataWithBias);
+                //std::cout<<"predictions "<< predictions <<std::endl<<std::endl;
+                cv::Mat R = calculateR(trainData, predictions);
                 cv::Mat hessian = calculateHessian(trainDataWithBias, R);
                 cv::Mat gradient = calculateGradient(trainDataWithBias, predictions, labelData);
                 //std::cout <<"Hessian: "<<std::endl<<hessian<<std::endl;
@@ -261,7 +304,61 @@ class LogisticRegression
 
                 weights = weights - hessianInv * gradient;
 
-                std::cout << "Iteration " << i + 1 << " complete. Weights updated." <<std::endl<<weights<< std::endl;
+
+                //std::cout << "weights: " << weights << std::endl;
+
+
+                cv::Mat testDataWithBias = calculateTrainDataWithBias(testData);
+                cv::Mat testPredictions = predict(testDataWithBias);
+                cv::Mat predictedTestLabels;
+                cv::threshold(testPredictions, predictedTestLabels, 0.5, 1, cv::THRESH_BINARY);
+                // Sicherstellen, dass der Vergleich korrekt durchgeführt wird
+
+                if (predictedTestLabels.rows == testLabel.rows) {
+                    float accuracy = computeAccuracy(predictedTestLabels, testLabel);
+                    std::cout << "Accuracy at Iteration " << i + 1<< ": " << accuracy << std::endl;
+                } else {
+                    std::cerr << "Mismatch in the number of rows between predicted labels and actual labels." << std::endl;
+                }
+
+                
+/*
+
+                // For monitoring purposes, calculate and print the accuracy on the test data
+                // Preprocess the test data similarly to the training data
+                cv::Mat testDataWithBias = calculateTrainDataWithBias(testData);
+
+                // Obtain predictions for the test data using the updated model weights
+                cv::Mat testPredictions = predict(testDataWithBias);
+
+                // Convert predicted probabilities into binary predictions based on a 0.5 threshold
+                // Predictions above this threshold are considered positive (1), and below are negative (0)
+                cv::Mat predictedTestLabels;
+
+                std::cout << "Predicted Labels Dimensions: " << predictedTestLabels.rows << "x" << predictedTestLabels.cols << std::endl;
+                std::cout << "Actual Labels Dimensions: " << testLabel.rows << "x" << testLabel.cols << std::endl;
+
+
+                std::cout << "Test Labels Rows: " << testLabel.rows << std::endl;
+                std::cout << "Predicted Test Labels Rows: " << predictedTestLabels.rows << std::endl;
+
+
+
+                cv::threshold(testPredictions, predictedTestLabels, 0.5, 1, cv::THRESH_BINARY);
+
+                // Calculate the test accuracy as the proportion of correctly predicted labels
+                float testAccuracy = cv::countNonZero(predictedTestLabels == testLabel) / static_cast<float>(testLabel.rows);
+
+                // Output the current epoch's test accuracy to monitor the model's performance over iterations
+                std::cout << "Iteration: " << i << " Test Accuracy: " << testAccuracy << std::endl;
+*/
+
+
+
+
+
+
+                //std::cout << "Iteration " << i + 1 << " complete. Weights updated." <<std::endl<<weights<< std::endl;
             }
         }
 
@@ -295,16 +392,36 @@ int main()
     FilterRows filterRowsTrain, filterRowsTest;
     filterRowsTrain.startRow = 0; filterRowsTrain.endRow = 1000; filterRowsTest.startRow = 1000; filterRowsTest.endRow = 6000;
 
-    preprocessor.loadDataset("./mnist_test.csv", 2, 5, filterRowsTrain, filterRowsTest);
+    //preprocessor.loadDataset("./mnist_test.csv", 2, 5, filterRowsTrain, filterRowsTest);
+    Data data;
+    data.total = cv::ml::TrainData::loadFromCSV("./mnist_test.csv", 0, 0, 1); // First col is the target as a float
+
+    Matrices train, test;
+    data.train = filterData(data.total, 0, 1000);
+    data.test = filterData(data.total, 1000, 6000);
+
+    train.sample = data.train->getTrainSamples();
+    train.label = data.train->getTrainResponses();
+    test.sample = data.test->getTrainSamples();
+    test.label = data.test->getTrainResponses();
+
+
 
     //preprocessor.filterData(1, 3);
 
+    /*
     Matrices train, test;
     
     train.sample = preprocessor.getTrainSamples();
     train.label = preprocessor.getTrainLabels();
     test.sample = preprocessor.getTestSamples();
     test.label = preprocessor.getTestLabels();
+    */
+
+    std::cout<<"test.sample.rows: "<<test.sample.rows<<std::endl;
+    std::cout<<"test.label.rows: "<<test.label.rows<<std::endl;
+
+
     
     //preprocessor.displayImagesInTerminal(10, data, label);
     
@@ -338,6 +455,7 @@ int main()
     std::cout<<"projectedTestSamples.cols: "<<projectedTestSamples.cols<<std::endl;
     std::cout<<"projectedTestSamples.rows: "<<projectedTestSamples.rows<<std::endl;
 
+
     //preprocessor.writeCsvFile(projectedData, "./pca_reduced_data.csv");
 
     //Map Target Labels of the Train and Test Dataset from 2 to 0 and from 5 to 1
@@ -347,7 +465,7 @@ int main()
     
     LogisticRegression model(projectedTrainSamples.cols);
 
-    model.train(projectedTrainSamples, binaryTrainLabel, 100);
+    model.train(projectedTrainSamples, binaryTrainLabel, projectedTestSamples, binaryTestLabel, 8);
 
 
 
