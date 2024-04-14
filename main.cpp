@@ -3,24 +3,42 @@
 #include <vector>
 #include <fstream>
 
-struct Data
+// Owner: Kevin Eppacher
+// https://github.com/KevinEppacher/MVSR_HW2.git
+
+
+/// @struct Data
+/// @brief Holds pointers to training and testing data.
+struct Data 
 {
-    cv::Ptr<cv::ml::TrainData> total;
-    cv::Ptr<cv::ml::TrainData> train;
-    cv::Ptr<cv::ml::TrainData> test;
+    cv::Ptr<cv::ml::TrainData> total; ///< Total dataset loaded from file.
+    cv::Ptr<cv::ml::TrainData> train; ///< Filtered training data.
+    cv::Ptr<cv::ml::TrainData> test;  ///< Filtered testing data.
 };
 
-struct Matrices
+/// @struct Matrices
+/// @brief Contains matrices of samples and labels for training or testing.
+struct Matrices 
 {
-    cv::Mat sample, label;
+    cv::Mat sample; ///< Matrix of data samples.
+    cv::Mat label;  ///< Matrix of corresponding labels.
 };
 
-struct FilterRows
+/// @struct FilterRows
+/// @brief Defines the range of rows to filter from the dataset.
+struct FilterRows 
 {
-    int startRow, endRow;
+    int startRow; ///< Starting row index for filtering.
+    int endRow;   ///< Ending row index for filtering.
 };
 
-float computeAccuracy(const cv::Mat& predicted, const cv::Mat& actual) {
+
+/// @brief Computes the accuracy of predictions against actual labels.
+/// @param predicted Matrix of predicted labels.
+/// @param actual Matrix of actual labels.
+/// @return Proportion of correct predictions.
+float computeAccuracy(const cv::Mat& predicted, const cv::Mat& actual) 
+{
     int correct = 0;
     for (int i = 0; i < predicted.rows; ++i) {
         int predLabel = predicted.at<float>(i, 0) >= 0.5 ? 1 : 0;
@@ -32,53 +50,18 @@ float computeAccuracy(const cv::Mat& predicted, const cv::Mat& actual) {
     return static_cast<float>(correct) / predicted.rows;
 }
 
-cv::Ptr<cv::ml::TrainData> filterData(const cv::Ptr<cv::ml::TrainData> &originalData, int startRow, int endRow)
+
+/// @brief Maps labels to binary values based on specified targets.
+/// @param originalLabel Matrix of original labels.
+/// @param desiredLabels Vector of desired binary labels.
+/// @return Matrix of mapped binary labels.
+cv::Mat mapLabelToBinary(const cv::Mat& originalLabel, const std::vector<float>& desiredLabels) 
 {
-    // Get the total number of rows in the original data
-    int totalRows = originalData->getSamples().rows;
-    startRow = std::max(0, startRow);     // Ensure startRow is not less than 0
-    endRow = std::min(endRow, totalRows); // Ensure endRow does not exceed totalRows
-
-    // Get the samples and responses within the specified range
-    cv::Mat samples = originalData->getSamples().rowRange(startRow, endRow);     // Get the samples
-    cv::Mat responses = originalData->getResponses().rowRange(startRow, endRow); // Get the responses
-
-    // Apply the mask: Find rows where the response is 7 or 8
-    cv::Mat mask = (responses == 2) | (responses == 5);
-
-    // Create empty matrices for storing filtered data
-    cv::Mat filteredSamples, filteredResponses;
-
-    // Loop through the mask and filter samples and responses
-    for (size_t i = 0; i < mask.total(); ++i)
-    {
-        if (mask.at<uint8_t>(i))
-        {
-            // Check if the mask at position i is true
-            filteredSamples.push_back(samples.row(i));
-            filteredResponses.push_back(responses.row(i));
-        }
-    }
-
-    // Create and return a new TrainData instance from the filtered samples and responses
-    return cv::ml::TrainData::create(filteredSamples, cv::ml::ROW_SAMPLE, filteredResponses);
-}
-
-
-
-cv::Mat mapLabelToBinary(const cv::Mat& originalLabel, const std::vector<float>& desiredLabels) {
     cv::Mat binaryLabels = originalLabel.clone();
 
-    for(int i = 0; i < binaryLabels.rows; ++i) 
-    {
+    for (int i = 0; i < binaryLabels.rows; ++i) {
         float& label = binaryLabels.at<float>(i, 0);
-        if (label == 2) {
-            label = desiredLabels.at(0);
-        } 
-        else if (label == 5) 
-        {
-            label = desiredLabels.at(1);
-        }
+        label = (label == 2) ? desiredLabels.at(0) : (label == 5 ? desiredLabels.at(1) : label);
     }
     return binaryLabels;
 }
@@ -98,22 +81,27 @@ public:
 
     ~DataPreprocessor(){};
 
-    cv::Ptr<cv::ml::TrainData> filter(const cv::Ptr<cv::ml::TrainData> &originalData, int digit1, int digit2, int startRow, int endRow)
+    /// @brief Filters data by specified digit labels within a row range.
+    /// @param originalData The complete dataset from which to filter.
+    /// @param digit1 First digit to filter by.
+    /// @param digit2 Second digit to filter by.
+    /// @param startRow Starting row index for filtering.
+    /// @param endRow Ending row index for filtering.
+    /// @return A pointer to the filtered training data.
+    cv::Ptr<cv::ml::TrainData> filter(const cv::Ptr<cv::ml::TrainData>& originalData, int digit1, int digit2, int startRow, int endRow) 
     {
+        int totalRows = originalData->getSamples().rows;
         startRow = std::max(0, startRow);
-        endRow = std::min(endRow, originalData->getNSamples()); 
+        endRow = std::min(endRow, totalRows);
 
         cv::Mat samples = originalData->getSamples().rowRange(startRow, endRow);
         cv::Mat responses = originalData->getResponses().rowRange(startRow, endRow);
 
         cv::Mat mask = (responses == digit1) | (responses == digit2);
-
         cv::Mat filteredSamples, filteredResponses;
 
-        for (size_t i = 0; i < mask.total(); ++i)
-        {
-            if (mask.at<uint8_t>(i))
-            {
+        for (size_t i = 0; i < mask.total(); ++i) {
+            if (mask.at<uint8_t>(i)) {
                 filteredSamples.push_back(samples.row(i));
                 filteredResponses.push_back(responses.row(i));
             }
@@ -143,9 +131,10 @@ public:
         }
     }
 
-    void standardizeData(cv::Mat& data)
-     {
-
+    /// @brief Standardizes the data by subtracting the mean and dividing by the standard deviation.
+    /// @param data The data matrix to be standardized.
+    void standardizeData(cv::Mat& data) 
+    {
         data.convertTo(data, CV_32F);
 
         cv::Scalar mean, stddev;
@@ -158,31 +147,39 @@ public:
         }
     }
 
+    /// @brief Checks and prints the mean and standard deviation of the data.
+    /// @param data The data matrix to be checked.
+    /// @param name Description of the data being checked.
     void checkStandardization(const cv::Mat& data, const std::string& name) 
     {
         cv::Scalar mean, stdDev;
-        
+
         cv::meanStdDev(data, mean, stdDev);
 
-        std::cout<< name << " Train Mean: " << mean[0] << " Train Stddev: " << stdDev[0] << std::endl;
+        std::cout << name << " Mean: " << mean[0] << ", Stddev: " << stdDev[0] << std::endl;
+
     }
 
+    /// @brief Writes PCA-reduced data and labels to a CSV file.
+    /// @param projectedData The matrix containing PCA-reduced data.
+    /// @param filepath Path to the output CSV file.
     void writeCsvFile(const cv::Mat& projectedData, const std::string& filepath)
     {
         std::ofstream outputFile(filepath);
 
         outputFile << "Component1,Component2,Component3,Label\n";
 
-        for (int i = 0; i < projectedData.rows; i++) {
-            for (int j = 0; j < projectedData.cols; j++) {
+        for (int i = 0; i < projectedData.rows; i++) 
+        {
+            for (int j = 0; j < projectedData.cols; j++) 
+            {
                 outputFile << projectedData.at<float>(i, j) << ",";
             }
-            outputFile << label.at<float>(i, 0) << "\n"; 
+            outputFile << label.at<float>(i, 0) << "\n";
         }
-
         outputFile.close();
-        
-        std::cout << "PCA-reduced data and labels have been written to 'pca_reduced_data.csv'" << std::endl;
+
+        std::cout << "PCA-reduced data and labels have been written to '" << filepath << "'" << std::endl;
     }
 
     cv::Mat getTrainSamples(){ return train.sample; }
@@ -193,244 +190,152 @@ public:
     
     cv::Mat getTestLabels(){ return test.label; }
 
-    void loadDataset(const std::string& csvPath, const int& filterDigit1, const int& filterDigit2, const FilterRows& filterRowsTrain, const FilterRows& filterRowsTest) 
+};
+
+/// @class LogisticRegression
+/// @brief Implements logistic regression including training and prediction functionalities.
+class LogisticRegression {
+private:
+    cv::Mat weights; ///< Weight matrix for logistic regression.
+
+    /// @brief Adds a bias term to the dataset and returns the modified dataset.
+    /// @param trainData The training data without the bias term.
+    /// @return The training data with a bias term added.
+    cv::Mat calculateTrainDataWithBias(const cv::Mat& trainData) 
     {
-        std::cout << "Loading MNIST Test Dataset from " << csvPath << "..." << std::endl;
+        cv::Mat trainDataWithBias;
 
-        data.total = cv::ml::TrainData::loadFromCSV(csvPath, 0, 0, 1);
+        cv::hconcat(cv::Mat::ones(trainData.rows, 1, trainData.type()), trainData, trainDataWithBias);
 
-        data.train = filter(data.total, filterDigit1, filterDigit2, filterRowsTrain.startRow, filterRowsTrain.endRow);
-        data.test = filter(data.total, filterDigit1, filterDigit2, filterRowsTest.startRow, filterRowsTest.endRow);
-
-        if (data.train->getSamples().empty()) 
-        {
-            std::cerr << "Train data is empty after filtering." << std::endl;
-        } 
-        else 
-        {
-            std::cout << "Train Samples Rows: " << data.train->getSamples().rows << std::endl;
-            std::cout << "Test Samples Rows: " << data.test->getSamples().rows << std::endl;
-
-            train.sample = data.train->getTrainSamples();
-            train.label = data.train->getTrainResponses();
-            test.sample = data.test->getTrainSamples();
-            test.label = data.test->getTrainResponses();
-        }
+        return trainDataWithBias;
     }
 
-};
+    /// @brief Applies the sigmoid function to each element in the matrix.
+    /// @param z The input matrix.
+    /// @return The matrix with the sigmoid function applied.
+    cv::Mat sigmoid(const cv::Mat& z) 
+    {
+        cv::Mat output;
 
-class LogisticRegression
-{
-    private:
-        cv::Mat weights;
+        cv::exp(-z, output);
 
-        cv::Mat calculateTrainDataWithBias(const cv::Mat& trainData)
+        output = 1.0 / (1.0 + output);
+
+        return output;
+    }
+
+    /// @brief Calculates the diagonal matrix R for logistic regression training.
+    /// @param trainDataWithBias The training data including the bias term.
+    /// @param trainPrediction Predictions made by the current model on the training data.
+    /// @return The diagonal matrix R used in the Hessian calculation.
+    cv::Mat calculateR(const cv::Mat& trainDataWithBias, const cv::Mat& trainPrediction) 
+    {
+        cv::Mat R = cv::Mat::zeros(trainDataWithBias.rows, trainDataWithBias.rows, CV_32F);
+
+        for (int i = 0; i < trainDataWithBias.rows; ++i) 
         {
-            cv::Mat trainDataWithBias;
-            cv::hconcat(cv::Mat::ones(trainData.rows, 1, trainData.type()), trainData, trainDataWithBias);
-            return trainDataWithBias;
+            double p = trainPrediction.at<float>(i, 0);
+            R.at<float>(i, i) = p * (1 - p);
         }
+        return R;
+    }
 
-        cv::Mat sigmoid(const cv::Mat& z) 
+    /// @brief Calculates the Hessian matrix for the logistic regression model.
+    /// @param trainDataWithBias The training data including the bias term.
+    /// @param R The diagonal matrix R from the logistic regression formula.
+    /// @return The Hessian matrix.
+    cv::Mat calculateHessian(const cv::Mat& trainDataWithBias, const cv::Mat& R) 
+    {
+        return trainDataWithBias.t() * R * trainDataWithBias;
+    }
+
+    /// @brief Calculates the gradient of the loss function.
+    /// @param trainDataWithBias The training data including the bias term.
+    /// @param predictions Predictions made by the current model.
+    /// @param labels Actual labels for the training data.
+    /// @return The gradient of the loss function.
+    cv::Mat calculateGradient(const cv::Mat& trainDataWithBias, const cv::Mat& predictions, const cv::Mat& labels) 
+    {
+        cv::Mat errors = predictions - labels;
+        return trainDataWithBias.t() * errors;
+    }
+
+public:
+    /// @brief Constructor for the LogisticRegression class.
+    /// @param quantityRows Number of rows in the training data, used to size the weights matrix.
+    LogisticRegression(int quantityRows) : weights(cv::Mat::zeros(quantityRows + 1, 1, CV_32F)) {}
+
+    /// @brief Destructor for the LogisticRegression class.
+    ~LogisticRegression() {}
+
+    /// @brief Makes predictions on the provided data using the logistic regression model.
+    /// @param trainDataWithBias The training data including the bias term.
+    /// @return Predictions made by the model.
+    cv::Mat predict(const cv::Mat& trainDataWithBias) 
+    {
+        cv::Mat exponent = trainDataWithBias * weights;
+        return sigmoid(exponent);
+    }
+
+    /// @brief Trains the logistic regression model using the provided data.
+    /// @param trainData Training data.
+    /// @param labelData Labels for the training data.
+    /// @param testData Test data used for evaluating the model.
+    /// @param testLabel Labels for the test data.
+    /// @param maxIterations Maximum number of iterations to perform.
+    void train(const cv::Mat& trainData, const cv::Mat& labelData, const cv::Mat& testData, const cv::Mat& testLabel, int maxIterations) 
+    {
+        cv::Mat trainDataWithBias = calculateTrainDataWithBias(trainData);
+
+        for (int i = 0; i < maxIterations; ++i) 
         {
-            cv::Mat output;
-            cv::exp(-z, output);
-            output = 1.0 / (1.0 + output);
-            return output;
-        }
+            cv::Mat predictions = predict(trainDataWithBias);
 
+            cv::Mat R = calculateR(trainDataWithBias, predictions);
 
-        cv::Mat calculateR(const cv::Mat& trainData, const cv::Mat& trainPrediction)
-        {
-            cv::Mat R = cv::Mat::zeros(trainData.rows, trainData.rows, CV_32F);
+            cv::Mat hessian = calculateHessian(trainDataWithBias, R);
 
-            //std::cout << "R: " << R << std::endl;
+            cv::Mat gradient = calculateGradient(trainDataWithBias, predictions, labelData);
 
+            cv::Mat hessianInv;
 
-            for (int i = 0; i < trainData.rows; ++i) 
+            cv::invert(hessian, hessianInv, cv::DECOMP_SVD);
+
+            weights = weights - hessianInv * gradient;
+
+            cv::Mat testDataWithBias = calculateTrainDataWithBias(testData);
+
+            cv::Mat testPredictions = predict(testDataWithBias);
+
+            cv::Mat predictedTestLabels;
+
+            cv::threshold(testPredictions, predictedTestLabels, 0.5, 1, cv::THRESH_BINARY);
+
+            if (predictedTestLabels.rows == testLabel.rows) 
             {
-                double p = trainPrediction.at<float>(i, 0);
-                R.at<float>(i, i) = p * (1 - p); // y_n (1 - y_n)
-            }
-            return R;
-        }
-
-        cv::Mat calculateHessian(const cv::Mat& trainDataWithBias, const cv::Mat& R)
-        {
-            return trainDataWithBias.t() * R * trainDataWithBias;
-        }
-
-        cv::Mat calculateGradient(const cv::Mat& trainDataWithBias, const cv::Mat& predictions, const cv::Mat& labels)
-        {
-            cv::Mat errors = predictions - labels;
-            return trainDataWithBias.t() * errors;  // ∇E(w) = Φ^T (y - t)
-        }
-
-    public:
-        LogisticRegression(int quantityRows): weights(cv::Mat::zeros(quantityRows + 1, 1, CV_32F)) {
-            std::cout << "Initial weights (including bias): " <<std::endl<< weights << std::endl;
-        }
-
-        ~LogisticRegression(){};
-        
-        cv::Mat predict(const cv::Mat& trainDataWithBias) 
-        {
-            cv::Mat exponent = trainDataWithBias * weights;
-            //std::cout<<"exponent "<< exponent <<std::endl<<std::endl;
-            return sigmoid(exponent);
-        }
-
-        void train(const cv::Mat& trainData, const cv::Mat& labelData, const cv::Mat& testData, const cv::Mat& testLabel, int maxIterations = 10)
-        {
-            cv::Mat trainDataWithBias = calculateTrainDataWithBias(trainData);
-
-            //std::cout << "trainDataWithBias: " << trainDataWithBias << std::endl;
-            //std::cout << "labelData: " << std::endl<< labelData << std::endl;
-
-
-            for(int i=0; i<maxIterations; i++)
-            {
-                //std::cout << "R: " << R << std::endl;
-                cv::Mat predictions = predict(trainDataWithBias);
-                //std::cout<<"predictions "<< predictions <<std::endl<<std::endl;
-                cv::Mat R = calculateR(trainData, predictions);
-                cv::Mat hessian = calculateHessian(trainDataWithBias, R);
-                cv::Mat gradient = calculateGradient(trainDataWithBias, predictions, labelData);
-                //std::cout <<"Hessian: "<<std::endl<<hessian<<std::endl;
-
-                cv::Mat hessianInv;
-                cv::invert(hessian, hessianInv, cv::DECOMP_SVD);
-
-                weights = weights - hessianInv * gradient;
-
-
-                //std::cout << "weights: " << weights << std::endl;
-
-
-                cv::Mat testDataWithBias = calculateTrainDataWithBias(testData);
-                cv::Mat testPredictions = predict(testDataWithBias);
-                cv::Mat predictedTestLabels;
-                cv::threshold(testPredictions, predictedTestLabels, 0.5, 1, cv::THRESH_BINARY);
-                // Sicherstellen, dass der Vergleich korrekt durchgeführt wird
-
-                if (predictedTestLabels.rows == testLabel.rows) {
-                    float accuracy = computeAccuracy(predictedTestLabels, testLabel);
-                    std::cout << "Accuracy at Iteration " << i + 1<< ": " << accuracy << std::endl;
-                } else {
-                    std::cerr << "Mismatch in the number of rows between predicted labels and actual labels." << std::endl;
-                }
-
-                
-/*
-
-                // For monitoring purposes, calculate and print the accuracy on the test data
-                // Preprocess the test data similarly to the training data
-                cv::Mat testDataWithBias = calculateTrainDataWithBias(testData);
-
-                // Obtain predictions for the test data using the updated model weights
-                cv::Mat testPredictions = predict(testDataWithBias);
-
-                // Convert predicted probabilities into binary predictions based on a 0.5 threshold
-                // Predictions above this threshold are considered positive (1), and below are negative (0)
-                cv::Mat predictedTestLabels;
-
-                std::cout << "Predicted Labels Dimensions: " << predictedTestLabels.rows << "x" << predictedTestLabels.cols << std::endl;
-                std::cout << "Actual Labels Dimensions: " << testLabel.rows << "x" << testLabel.cols << std::endl;
-
-
-                std::cout << "Test Labels Rows: " << testLabel.rows << std::endl;
-                std::cout << "Predicted Test Labels Rows: " << predictedTestLabels.rows << std::endl;
-
-
-
-                cv::threshold(testPredictions, predictedTestLabels, 0.5, 1, cv::THRESH_BINARY);
-
-                // Calculate the test accuracy as the proportion of correctly predicted labels
-                float testAccuracy = cv::countNonZero(predictedTestLabels == testLabel) / static_cast<float>(testLabel.rows);
-
-                // Output the current epoch's test accuracy to monitor the model's performance over iterations
-                std::cout << "Iteration: " << i << " Test Accuracy: " << testAccuracy << std::endl;
-*/
-
-
-
-
-
-
-                //std::cout << "Iteration " << i + 1 << " complete. Weights updated." <<std::endl<<weights<< std::endl;
+                float accuracy = computeAccuracy(predictedTestLabels, testLabel);
+                std::cout << "Accuracy at Iteration " << i + 1 << ": " << accuracy << std::endl;
+            } else {
+                std::cerr << "Mismatch in the number of rows between predicted labels and actual labels." << std::endl;
             }
         }
-
+    }
 };
-
-
 
 
 int main() 
 {
-    /*
-    Preproccessing:
-        Extract Data from dataset with the matrikel number digits
-        Standardize dataset
-        PCA
-
-    Training:
-        Train
-        Predict
-        Plot Accuracy
-        Select iteration quantity
-    
-    Formatting:
-
-
-    */
-
-
     DataPreprocessor preprocessor;
+    FilterRows filterRowsTrain{0, 1000}, filterRowsTest{1000, 6000};
 
-    FilterRows filterRowsTrain, filterRowsTest;
-    filterRowsTrain.startRow = 0; filterRowsTrain.endRow = 1000; filterRowsTest.startRow = 1000; filterRowsTest.endRow = 6000;
-
-    //preprocessor.loadDataset("./mnist_test.csv", 2, 5, filterRowsTrain, filterRowsTest);
     Data data;
-    data.total = cv::ml::TrainData::loadFromCSV("./mnist_test.csv", 0, 0, 1); // First col is the target as a float
+    data.total = cv::ml::TrainData::loadFromCSV("./mnist_test.csv", 0, 0, 1);
 
-    Matrices train, test;
-    data.train = filterData(data.total, 0, 1000);
-    data.test = filterData(data.total, 1000, 6000);
+    data.train = preprocessor.filter(data.total, 2, 5, filterRowsTrain.startRow, filterRowsTrain.endRow);
+    data.test = preprocessor.filter(data.total, 2, 5, filterRowsTest.startRow, filterRowsTest.endRow);
 
-    train.sample = data.train->getTrainSamples();
-    train.label = data.train->getTrainResponses();
-    test.sample = data.test->getTrainSamples();
-    test.label = data.test->getTrainResponses();
-
-
-
-    //preprocessor.filterData(1, 3);
-
-    /*
-    Matrices train, test;
-    
-    train.sample = preprocessor.getTrainSamples();
-    train.label = preprocessor.getTrainLabels();
-    test.sample = preprocessor.getTestSamples();
-    test.label = preprocessor.getTestLabels();
-    */
-
-    std::cout<<"test.sample.rows: "<<test.sample.rows<<std::endl;
-    std::cout<<"test.label.rows: "<<test.label.rows<<std::endl;
-
-
-    
-    //preprocessor.displayImagesInTerminal(10, data, label);
-    
-
-    /*
-    cv::namedWindow("data", 1);
-    cv::imshow("data", data);
-    cv::waitKey(0);
-    */ 
+    Matrices train{data.train->getTrainSamples(), data.train->getTrainResponses()},
+             test{data.test->getTrainSamples(), data.test->getTrainResponses()};
 
     preprocessor.standardizeData(train.sample);
     preprocessor.standardizeData(test.sample);
@@ -438,38 +343,19 @@ int main()
     preprocessor.checkStandardization(train.sample, "Train Data");
     preprocessor.checkStandardization(test.sample, "Test Data");
 
+    int PCADim = 3;
+    cv::PCA pcaTrain(train.sample, cv::Mat(), cv::PCA::DATA_AS_ROW, PCADim),
+           pcaTest(test.sample, cv::Mat(), cv::PCA::DATA_AS_ROW, PCADim);
 
+    cv::Mat projectedTrainSamples = pcaTrain.project(train.sample),
+            projectedTestSamples = pcaTest.project(test.sample);
 
-    int PCADim = 3; // Beispiel: Reduzieren auf 50 Dimensionen
-    cv::PCA pcaTrain(train.sample, cv::Mat(), cv::PCA::DATA_AS_ROW, PCADim);
-    cv::PCA pcaTest(test.sample, cv::Mat(), cv::PCA::DATA_AS_ROW, PCADim);
+    std::vector<float> desiredLabels = {0, 1};
+    cv::Mat binaryTrainLabel = mapLabelToBinary(train.label, desiredLabels),
+            binaryTestLabel = mapLabelToBinary(test.label, desiredLabels);
 
-    // Projizieren Sie die Daten auf die PCA-Hauptkomponenten
-    cv::Mat projectedTrainSamples = pcaTrain.project(train.sample);
-    cv::Mat projectedTestSamples = pcaTest.project(test.sample);
-
-
-    std::cout<<"projectedTrainSamples.cols: "<<projectedTrainSamples.cols<<std::endl;
-    std::cout<<"projectedTrainSamples.rows: "<<projectedTrainSamples.rows<<std::endl;
-
-    std::cout<<"projectedTestSamples.cols: "<<projectedTestSamples.cols<<std::endl;
-    std::cout<<"projectedTestSamples.rows: "<<projectedTestSamples.rows<<std::endl;
-
-
-    //preprocessor.writeCsvFile(projectedData, "./pca_reduced_data.csv");
-
-    //Map Target Labels of the Train and Test Dataset from 2 to 0 and from 5 to 1
-    std::vector<float> desiredLabels = {0, 1}; // Korrekte Initialisierung
-    cv::Mat binaryTrainLabel = mapLabelToBinary(train.label, desiredLabels);
-    cv::Mat binaryTestLabel = mapLabelToBinary(test.label, desiredLabels);
-    
     LogisticRegression model(projectedTrainSamples.cols);
-
     model.train(projectedTrainSamples, binaryTrainLabel, projectedTestSamples, binaryTestLabel, 8);
-
-
-
-
 
     return 0;
 }
